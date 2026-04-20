@@ -9,7 +9,7 @@
 #include <linux/atomic.h>
 #include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/hrtimer.h>
+#include <linux/delay.h>
 #include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
@@ -167,34 +167,6 @@ static void ntsync_unlock_obj(struct ntsync_device *dev, struct ntsync_obj *obj,
  } else {
   obj_unlock(obj);
  }
-}
-
-static bool is_signaled(struct ntsync_obj *obj, __u32 owner)
-{
-	bool ret;
-
-	obj_lock(obj);
-
-	switch (obj->type) {
-	case NTSYNC_TYPE_SEM:
-		ret = !!obj->u.sem.count;
-		break;
-	case NTSYNC_TYPE_MUTEX:
-		if (obj->u.mutex.owner && obj->u.mutex.owner != owner) {
-			ret = false;
-		} else {
-			ret = obj->u.mutex.count < UINT_MAX;
-		}
-		break;
-	case NTSYNC_TYPE_EVENT:
-		ret = obj->u.event.signaled;
-		break;
-	default:
-		ret = false;
-	}
-
-	obj_unlock(obj);
-	return ret;
 }
 
 static void try_wake_any_sem(struct ntsync_obj *sem)
@@ -779,7 +751,9 @@ ret = -ERESTARTSYS;
 
 	if (args.timeout == 0xFFFFFFFFFFFFFFFFULL) {
 		set_current_state(TASK_INTERRUPTIBLE);
-		while (atomic_read(&q->signaled) == -1) {
+		while (1) {
+			if (atomic_read(&q->signaled) != -1)
+				break;
 			if (signal_pending(current))
 				break;
 			schedule();
@@ -787,16 +761,17 @@ ret = -ERESTARTSYS;
 		}
 		__set_current_state(TASK_RUNNING);
 	} else {
-		ktime_t timeout_ns = ns_to_ktime(args.timeout * 100);
-		ktime_t end = ktime_add(ktime_get(), timeout_ns);
+		long timeout_jiffies = msecs_to_jiffies(args.timeout / 1000000);
 
 		set_current_state(TASK_INTERRUPTIBLE);
-		while (atomic_read(&q->signaled) == -1) {
+		while (1) {
+			if (atomic_read(&q->signaled) != -1)
+				break;
 			if (signal_pending(current))
 				break;
-			if (ktime_compare(ktime_get(), end) >= 0)
+			if (!timeout_jiffies)
 				break;
-			schedule_hrtimeout(&end, HRTIMER_MODE_ABS);
+			timeout_jiffies = schedule_timeout(timeout_jiffies);
 			set_current_state(TASK_INTERRUPTIBLE);
 		}
 		__set_current_state(TASK_RUNNING);
@@ -815,15 +790,15 @@ ret = -ERESTARTSYS;
 	else
 		ret = -ETIMEDOUT;
 
- for (i = 0; i < total_count; i++)
-  put_obj(q->entries[i].obj);
+	for (i = 0; i < total_count; i++)
+		put_obj(q->entries[i].obj);
 
- kfree(q);
+	kfree(q);
 
- if (ret >= 0 && put_user((__u32)ret, &((struct ntsync_wait_args __user *)argp)->index))
-  ret = -EFAULT;
+	if (ret >= 0 && put_user((__u32)ret, &((struct ntsync_wait_args __user *)argp)->index))
+		ret = -EFAULT;
 
- return ret;
+	return ret;
 }
 
 static int ntsync_wait_all(struct ntsync_device *dev, void __user *argp)
@@ -862,7 +837,9 @@ static int ntsync_wait_all(struct ntsync_device *dev, void __user *argp)
 
 	if (args.timeout == 0xFFFFFFFFFFFFFFFFULL) {
 		set_current_state(TASK_INTERRUPTIBLE);
-		while (atomic_read(&q->signaled) == -1) {
+		while (1) {
+			if (atomic_read(&q->signaled) != -1)
+				break;
 			if (signal_pending(current))
 				break;
 			schedule();
@@ -870,16 +847,17 @@ static int ntsync_wait_all(struct ntsync_device *dev, void __user *argp)
 		}
 		__set_current_state(TASK_RUNNING);
 	} else {
-		ktime_t timeout_ns = ns_to_ktime(args.timeout * 100);
-		ktime_t end = ktime_add(ktime_get(), timeout_ns);
+		long timeout_jiffies = msecs_to_jiffies(args.timeout / 1000000);
 
 		set_current_state(TASK_INTERRUPTIBLE);
-		while (atomic_read(&q->signaled) == -1) {
+		while (1) {
+			if (atomic_read(&q->signaled) != -1)
+				break;
 			if (signal_pending(current))
 				break;
-			if (ktime_compare(ktime_get(), end) >= 0)
+			if (!timeout_jiffies)
 				break;
-			schedule_hrtimeout(&end, HRTIMER_MODE_ABS);
+			timeout_jiffies = schedule_timeout(timeout_jiffies);
 			set_current_state(TASK_INTERRUPTIBLE);
 		}
 		__set_current_state(TASK_RUNNING);
