@@ -169,20 +169,30 @@ static void ntsync_unlock_obj(struct ntsync_device *dev, struct ntsync_obj *obj,
 
 static bool is_signaled(struct ntsync_obj *obj, __u32 owner)
 {
- obj_lock(obj);
+	bool ret;
 
- switch (obj->type) {
- case NTSYNC_TYPE_SEM:
-  return !!obj->u.sem.count;
- case NTSYNC_TYPE_MUTEX:
-  if (obj->u.mutex.owner && obj->u.mutex.owner != owner)
-   return false;
-  return obj->u.mutex.count < UINT_MAX;
- case NTSYNC_TYPE_EVENT:
-  return obj->u.event.signaled;
- }
+	obj_lock(obj);
 
- return false;
+	switch (obj->type) {
+	case NTSYNC_TYPE_SEM:
+		ret = !!obj->u.sem.count;
+		break;
+	case NTSYNC_TYPE_MUTEX:
+		if (obj->u.mutex.owner && obj->u.mutex.owner != owner) {
+			ret = false;
+		} else {
+			ret = obj->u.mutex.count < UINT_MAX;
+		}
+		break;
+	case NTSYNC_TYPE_EVENT:
+		ret = obj->u.event.signaled;
+		break;
+	default:
+		ret = false;
+	}
+
+	obj_unlock(obj);
+	return ret;
 }
 
 static void try_wake_any_sem(struct ntsync_obj *sem)
@@ -507,12 +517,13 @@ static int ntsync_obj_get_fd(struct ntsync_obj *obj)
   return fd;
 
 file = anon_inode_getfile("ntsync", &ntsync_obj_fops, obj, O_RDWR);
-  if (IS_ERR(file)) {
-   put_unused_fd(fd);
-   return PTR_ERR(file);
-  }
+	if (IS_ERR(file)) {
+		put_unused_fd(fd);
+		return PTR_ERR(file);
+	}
 
- fd_install(fd, file);
+	obj->file = file;
+	fd_install(fd, file);
  return fd;
 }
 
@@ -629,7 +640,7 @@ static int setup_wait(struct ntsync_device *dev,
 
  total_count = count;
 
- q = kmalloc(size + sizeof(*q), GFP_KERNEL);
+ q = kmalloc(sizeof(*q) + count * sizeof(q->entries[0]), GFP_KERNEL);
  if (!q)
   return -ENOMEM;
 
@@ -722,8 +733,11 @@ static int ntsync_wait_any(struct ntsync_device *dev, void __user *argp)
   list_del(&entry->node);
  }
 
- signaled = atomic_read(&q->signaled);
- ret = signaled;
+signaled = atomic_read(&q->signaled);
+	if (signaled >= 0)
+		ret = signaled;
+	else
+		ret = -EINTR;
 
  for (i = 0; i < total_count; i++)
   put_obj(q->entries[i].obj);
