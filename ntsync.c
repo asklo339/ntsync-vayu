@@ -191,13 +191,12 @@ static void try_wake_any_sem(struct ntsync_obj *sem)
 
  obj_lock(sem);
 
- list_for_each_entry(entry, &sem->any_waiters, node) {
-  struct ntsync_q *q = entry->q;
-  int signaled = -1;
+list_for_each_entry(entry, &sem->any_waiters, node) {
+   struct ntsync_q *q = entry->q;
 
-  if (!sem->u.sem.count)
-   break;
-  if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
+   if (!sem->u.sem.count)
+    break;
+   if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
    sem->u.sem.count--;
    wake_up_process(q->task);
   }
@@ -212,15 +211,14 @@ static void try_wake_any_mutex(struct ntsync_obj *mutex)
 
  obj_lock(mutex);
 
- list_for_each_entry(entry, &mutex->any_waiters, node) {
-  struct ntsync_q *q = entry->q;
-  int signaled = -1;
+list_for_each_entry(entry, &mutex->any_waiters, node) {
+   struct ntsync_q *q = entry->q;
 
-  if (mutex->u.mutex.count == UINT_MAX)
-   break;
-  if (mutex->u.mutex.owner && mutex->u.mutex.owner != q->owner)
-   continue;
-  if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
+   if (mutex->u.mutex.count == UINT_MAX)
+    break;
+   if (mutex->u.mutex.owner && mutex->u.mutex.owner != q->owner)
+    continue;
+   if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
    if (mutex->u.mutex.ownerdead)
     q->ownerdead = true;
    mutex->u.mutex.ownerdead = false;
@@ -239,13 +237,12 @@ static void try_wake_any_event(struct ntsync_obj *event)
 
  obj_lock(event);
 
- list_for_each_entry(entry, &event->any_waiters, node) {
-  struct ntsync_q *q = entry->q;
-  int signaled = -1;
+list_for_each_entry(entry, &event->any_waiters, node) {
+   struct ntsync_q *q = entry->q;
 
-  if (!event->u.event.signaled)
-   break;
-  if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
+   if (!event->u.event.signaled)
+    break;
+   if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
    if (!event->u.event.manual)
     event->u.event.signaled = false;
    wake_up_process(q->task);
@@ -601,13 +598,14 @@ static struct ntsync_obj *get_obj(struct ntsync_device *dev, int fd)
   return NULL;
  }
 
- obj = file->private_data;
- if (obj->dev != dev) {
-  fput(file);
-  return NULL;
- }
+obj = file->private_data;
+    if (obj->dev != dev) {
+        fput(file);
+        return NULL;
+    }
 
- return obj;
+    obj->file = file;
+    return obj;
 }
 
 static void put_obj(struct ntsync_obj *obj)
@@ -666,9 +664,8 @@ static int setup_wait(struct ntsync_device *dev,
   entry->index = i;
  }
 
- *ret_q = 0;
- kfree(q);
- return 0;
+    *ret_q = q;
+    return 0;
 
 err:
  for (j = 0; j < i; j++)
