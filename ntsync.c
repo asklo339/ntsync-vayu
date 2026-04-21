@@ -207,7 +207,6 @@ static void try_wake_all(struct ntsync_device *dev, struct ntsync_q *q,
 {
 	__u32 count = q->count;
 	bool can_wake = true;
-	int signaled = -1;
 	__u32 i;
 
 	for (i = 0; i < count; i++) {
@@ -267,7 +266,6 @@ static void try_wake_any_sem(struct ntsync_obj *sem)
 
 	list_for_each_entry(entry, &sem->any_waiters, node) {
 		struct ntsync_q *q = entry->q;
-		int signaled = -1;
 
 		if (!sem->u.sem.count)
 			break;
@@ -285,7 +283,6 @@ static void try_wake_any_mutex(struct ntsync_obj *mutex)
 
 	list_for_each_entry(entry, &mutex->any_waiters, node) {
 		struct ntsync_q *q = entry->q;
-		int signaled = -1;
 
 		if (mutex->u.mutex.count == UINT_MAX)
 			break;
@@ -309,7 +306,6 @@ static void try_wake_any_event(struct ntsync_obj *event)
 
 	list_for_each_entry(entry, &event->any_waiters, node) {
 		struct ntsync_q *q = entry->q;
-		int signaled = -1;
 
 		if (!event->u.event.signaled)
 			break;
@@ -912,14 +908,8 @@ static int ntsync_wait_any(struct ntsync_device *dev, void __user *argp)
 	if (ret < 0)
 		return ret;
 
-	total_count = args.count;
-	if (args.alert)
-		total_count++;
-
 	/* queue ourselves */
-		total_count++;
-
-	/* queue ourselves */
+	total_count++;
 	for (i = 0; i < total_count; i++) {
 		struct ntsync_q_entry *entry = &q->entries[i];
 		struct ntsync_obj *obj = entry->obj;
